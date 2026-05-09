@@ -56,6 +56,12 @@ def _getenv_required(name: str) -> str:
     return value
 
 
+def _optional_env(name: str) -> str | None:
+    """Bien moi truong tu chon — chuoi rong -> None."""
+    value = (os.getenv(name) or "").strip()
+    return value if value else None
+
+
 def _neo4j_allow_localhost() -> bool:
     """Cho phep bolt://localhost chi khi co co y (dev local)."""
     return os.getenv("NEO4J_ALLOW_LOCALHOST", "").strip().lower() in ("1", "true", "yes")
@@ -129,6 +135,9 @@ class Settings(BaseModel):
     enable_llm_hyde: bool = Field(
         default_factory=lambda: os.getenv("ENABLE_LLM_HYDE", "true").lower() == "true"
     )
+
+    # ----- PDF tra cứu văn bản (VB hợp nhất BLHS, mode tra_cuu_pdf) -----
+    blhs_pdf_path: str | None = Field(default_factory=lambda: _optional_env("BLHS_PDF_PATH"))
 
     # ----- App -----
     app_host: str = Field(default_factory=lambda: os.getenv("CHATBOT_HOST", "0.0.0.0"))

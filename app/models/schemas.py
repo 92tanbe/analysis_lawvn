@@ -63,10 +63,22 @@ class Citation(BaseModel):
 
 # ---------------------------- API request/response --------------------------
 
+ChatMode = Literal[
+    "phan_tich",
+    "tra_cuu_pdf",
+]
+
 
 class ChatRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=4000)
     top_k: int = Field(default=8, ge=1, le=30)
+    chat_mode: ChatMode = Field(
+        default="tra_cuu_pdf",
+        description=(
+            "tra_cuu_pdf (mac dinh): tra loi/chat nhanh + trich theo VB hop nhat trong file PDF (dataset). "
+            "phan_tich: bat pipeline RAG/Neo4j + LLM de phan tich tinh huong."
+        ),
+    )
     include_debug: bool = Field(
         default=False,
         description="Tra ve them debug info (entities, retrieval, rerank)",

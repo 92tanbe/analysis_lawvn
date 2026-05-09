@@ -55,6 +55,18 @@ with st.sidebar:
         disabled=(mode == "local"),
     )
 
+    chat_mode_demo = st.radio(
+        "Che do hoi",
+        options=[
+            ("Tra cuu VB PDF + chat nhanh (mac dinh)", "tra_cuu_pdf"),
+            ("Phan tich tinh huong (Neo4j + LLM)", "phan_tich"),
+        ],
+        format_func=lambda item: item[0],
+        index=0,
+        help="PDF: dat file P1 VB-Hop-nhat-BLHS-2025.pdf vao dataset/ hoac BLHS_PDF_PATH.",
+    )
+    chat_mode_value = chat_mode_demo[1]
+
     top_k = st.slider("Top-K (sau rerank)", min_value=3, max_value=20, value=8)
     show_debug = st.toggle("Hien thi debug retrieval", value=True)
     use_stream = st.toggle("Stream tung giai doan (mode http)", value=False)
@@ -166,31 +178,62 @@ def _render_response(resp: dict) -> None:
         st.json(resp.get("structured", {}))
 
 
-def _call_local(question: str, top_k: int, include_debug: bool) -> dict:
-    from app.pipeline.orchestrator import run_pipeline
+def _call_local(
+    question: str,
+    top_k: int,
+    include_debug: bool,
+    chat_mode: str,
+) -> dict:
+    if chat_mode == "tra_cuu_pdf":
+        from app.pipeline.pdf_textbook import run_pdf_lookup_pipeline
 
-    resp = run_pipeline(question=question, top_k=top_k, include_debug=include_debug)
+        resp = run_pdf_lookup_pipeline(question=question, include_debug=include_debug)
+    else:
+        from app.pipeline.orchestrator import run_pipeline
+
+        resp = run_pipeline(
+            question=question, top_k=top_k, include_debug=include_debug
+        )
+
     return resp.model_dump()
 
 
-def _call_http(api_url: str, question: str, top_k: int, include_debug: bool) -> dict:
+def _call_http(
+    api_url: str, question: str, top_k: int, include_debug: bool, chat_mode: str
+) -> dict:
     import requests
 
     r = requests.post(
         f"{api_url.rstrip('/')}/rag/query",
-        json={"question": question, "top_k": top_k, "include_debug": include_debug},
+        json={
+            "question": question,
+            "top_k": top_k,
+            "include_debug": include_debug,
+            "chat_mode": chat_mode,
+        },
         timeout=120,
     )
     r.raise_for_status()
     return r.json()
 
 
-def _stream_http(api_url: str, question: str, top_k: int, include_debug: bool):
+def _stream_http(
+    api_url: str,
+    question: str,
+    top_k: int,
+    include_debug: bool,
+    chat_mode: str,
+):
     import requests
 
     with requests.post(
         f"{api_url.rstrip('/')}/rag/query/stream",
-        json={"question": question, "top_k": top_k, "include_debug": include_debug},
+        json={
+            "question": question,
+            "top_k": top_k,
+            "include_debug": include_debug,
+            "chat_mode": chat_mode,
+        },
         stream=True,
         timeout=300,
     ) as r:
@@ -224,13 +267,19 @@ if run_btn and question.strip():
             t0 = time.time()
             try:
                 if mode == "local":
-                    resp = _call_local(question.strip(), top_k, show_debug)
+                    resp = _call_local(
+                        question.strip(), top_k, show_debug, chat_mode_value
+                    )
                 elif use_stream:
                     log_area = progress_box.empty()
                     log_lines: list[str] = []
                     final_resp: dict = {}
                     for event, data in _stream_http(
-                        api_url, question.strip(), top_k, show_debug
+                        api_url,
+                        question.strip(),
+                        top_k,
+                        show_debug,
+                        chat_mode_value,
                     ):
                         log_lines.append(f"**{event}**: {json.dumps(data, ensure_ascii=False)[:300]}")
                         log_area.markdown("\n\n".join(log_lines[-12:]))
@@ -245,7 +294,13 @@ if run_btn and question.strip():
                             }
                     resp = final_resp or {"final_answer": "(Khong nhan duoc final event)"}
                 else:
-                    resp = _call_http(api_url, question.strip(), top_k, show_debug)
+                    resp = _call_http(
+                        api_url,
+                        question.strip(),
+                        top_k,
+                        show_debug,
+                        chat_mode_value,
+                    )
             except Exception as exc:  # noqa: BLE001
                 st.error(f"Loi khi goi pipeline: {exc}")
                 resp = None

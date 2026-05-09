@@ -13,6 +13,9 @@ sentence-transformers>=3.0
 torch>=2.2
 numpy>=1.26
 
+# Doc PDF (VB hợp nhất BLHS, mode tra_cuu_pdf)
+pypdf>=5.0
+
 # NLP tieng Viet
 underthesea>=6.8
 

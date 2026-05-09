@@ -12,6 +12,7 @@ Co ho tro 2 mode:
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -26,6 +27,7 @@ from app.models.legal_output import (
     ToiDanhOutput,
 )
 from app.models.schemas import (
+    ChatMode,
     ChatResponse,
     ChatResponseDebug,
     Citation,
@@ -42,6 +44,7 @@ from app.pipeline.context_builder import (
     collect_known_rule_ids,
 )
 from app.pipeline.fast_response import build_fast_response
+from app.pipeline.pdf_textbook import run_pdf_lookup_pipeline
 from app.pipeline.prompts import SYSTEM_PROMPT, build_user_prompt
 from app.postprocessing.validator import validate_case_analysis
 from app.retrievers import graph as graph_retriever
@@ -864,13 +867,45 @@ async def run_pipeline_stream(
     question: str,
     top_k: int | None = None,
     include_debug: bool = True,
+    chat_mode: ChatMode = "tra_cuu_pdf",
 ) -> AsyncGenerator[StageEvent, None]:
     """Async generator yield StageEvent qua tung giai doan.
 
-    Khong stream LLM token cap thap (de don gian),
+    Neu chat_mode='tra_cuu_pdf': chi yield started -> pdf_lookup_done -> final,
+    khong chay retrieval/rerank/LLM cua pipeline phan tich.
+
+    Neu chat_mode='phan_tich':
     chi stream theo MOC giai doan: stage1_done, stage2_done, stage3_done, stage4_done, final.
     """
-    yield StageEvent(stage="started", payload={"question": question})
+    yield StageEvent(stage="started", payload={"question": question, "chat_mode": chat_mode})
+
+    if chat_mode == "tra_cuu_pdf":
+        resp = await asyncio.to_thread(
+            run_pdf_lookup_pipeline,
+            question,
+            include_debug,
+        )
+        structured = resp.structured if isinstance(resp.structured, dict) else {}
+        yield StageEvent(
+            stage="pdf_lookup_done",
+            payload={
+                "type": structured.get("type"),
+                "matched_as": structured.get("matched_as"),
+                "confidence": resp.confidence,
+                "intent": structured.get("intent"),
+            },
+        )
+        yield StageEvent(
+            stage="final",
+            payload={
+                "final_answer": resp.final_answer,
+                "structured": resp.structured,
+                "citations": [c.model_dump() for c in resp.citations],
+                "confidence": resp.confidence,
+                "debug": resp.debug.model_dump() if resp.debug else None,
+            },
+        )
+        return
 
     fast_response = build_fast_response(question, include_debug=include_debug)
     if fast_response is not None:
